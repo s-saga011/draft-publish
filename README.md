@@ -1,86 +1,91 @@
 # Draft CLI
 
+Publish paid articles from your terminal. Like git push.
+
 ターミナルから有料記事を公開。git push のように。
 
-## インストール（ワンライン）
+## Install
 
 ```bash
 pipx install git+https://github.com/s-saga011/draft-publish.git
 ```
 
-> [pipx](https://pipx.pypa.io/) がない場合: `brew install pipx` (Mac) / `apt install pipx` (Linux) / `pip install pipx` (その他)
+> No pipx? `brew install pipx` (Mac) / `apt install pipx` (Linux) / `pip install pipx` (Windows WSL)
 
-## セットアップ
+## Setup
 
 ```bash
-# サーバー設定（初回のみ）
-draft remote https://draft-publish.com
+# Set server and language (first time only)
+draft remote https://draft-publish.com --lang en  # or --lang ja
 
-# SSH公開鍵をWeb UIの設定画面から登録
-# → https://draft-publish.com/login
+# Register your SSH public key at the web UI
+# → https://draft-publish.com/settings
 ```
 
-## 使い方
+## Usage
 
 ```bash
-# 新規記事を作成
-draft new "記事タイトル" --price 500 --tags "投資,AI"
+# Create a new article
+draft new "My Article" --price 500 --tags "investing,AI"
 
-# 記事を編集
-cd ~/drafts/記事タイトル-xxxxxx/
+# Edit the article
+cd ~/drafts/my-article-xxxxxx/
 cursor article.md
 
-# push（SSH鍵で自動認証、画像も自動アップロード）
+# Push (SSH auth + auto image upload)
 draft push
 
-# 公開
+# Publish (draft → published)
 draft publish
 ```
 
-## フォルダごとpush
+## Push a folder
 
 ```bash
-# Markdownと画像をフォルダにまとめてpush
+# Push markdown + images together
 draft push ./my-article/ --price 500
-# → 画像は自動検出・アップロード・リンク書き換え
+# → Images auto-detected, uploaded, and linked
 ```
 
 ## Frontmatter
 
 ```markdown
 ---
-title: "記事タイトル"
-price: 1000
-tags: [投資, AI, 暴落]
+title: "My Article"
+price: 500
+tags: [investing, AI]
 ---
 
-# 記事タイトル
+# Article Title
 
-ここに本文...
+Content here...
 
 <!-- paywall -->
 
-ここから有料部分...
+Paid content here...
 ```
 
-## コマンド一覧
+## Commands
 
-| コマンド | 説明 |
-|---------|------|
-| `draft remote <url>` | サーバーURLを設定 |
-| `draft new "タイトル"` | 新規記事ブランチを作成 |
-| `draft push [path]` | 記事をpush |
-| `draft publish` | 下書き → 公開 |
-| `draft checkout <slug>` | 既存記事をダウンロード |
-| `draft status` | ローカルの記事一覧 |
-| `draft log` | リビジョン履歴 |
-| `draft list` | サーバーの記事一覧 |
+| Command | Description |
+|---------|-------------|
+| `draft remote <url> --lang en` | Set server URL and language |
+| `draft new "title"` | Create article branch |
+| `draft push [path]` | Push article (SSH auth) |
+| `draft publish` | Draft → Published |
+| `draft checkout <slug>` | Download existing article |
+| `draft status` | List local branches |
+| `draft log` | Revision history |
+| `draft list` | List server articles |
+| `draft lang en/ja` | Switch language |
 
-## 認証
+## Auth
+
+SSH public key (GitHub style). No passwords or API keys stored locally.
 
 SSH公開鍵認証（GitHub方式）。パスワードやAPIキーの保存は不要。
 
-## リンク
+## Links
 
 - Web: https://draft-publish.com
-- CLI詳細: https://draft-publish.com/cli
+- CLI Guide: https://draft-publish.com/cli
