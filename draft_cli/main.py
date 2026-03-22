@@ -204,6 +204,22 @@ def push(
     from rich.panel import Panel
 
     console = Console()
+
+    # Validate path first
+    if path is None:
+        article_dir = find_article_dir()
+        if not article_dir:
+            console.print("❌ draft.json が見つかりません", style="red")
+            console.print("   記事ディレクトリ内で実行するか、パスを指定してください")
+            console.print("   例: draft push ./my-article/", style="dim")
+            raise typer.Exit(1)
+    elif not (path.exists() if path else True):
+        console.print(f"❌ パスが見つかりません: {path}", style="red")
+        if "\\" in str(path) or str(path).startswith(".\\"):
+            console.print("   💡 WSL/Linuxではスラッシュ(/)を使ってください", style="yellow")
+            console.print(f"   例: draft push ./{str(path).replace(chr(92), '/')}/", style="dim")
+        raise typer.Exit(1)
+
     base_url = get_base_url()
     console.print("🔑 SSH認証中...", style="dim")
     api_key = ssh_authenticate(base_url)
@@ -443,4 +459,22 @@ def list_articles():
 
 
 if __name__ == "__main__":
-    app()
+    try:
+        app()
+    except Exception as e:
+        from rich.console import Console
+        console = Console()
+        err = str(e)
+        if "No such file or directory" in err:
+            console.print(f"❌ ファイルが見つかりません: {err.split(': ')[-1] if ': ' in err else err}", style="red")
+            console.print("   💡 パスを確認してください。WSLではスラッシュ(/)を使います", style="yellow")
+        elif "Connection refused" in err or "ConnectError" in err:
+            console.print("❌ サーバーに接続できません", style="red")
+            console.print("   `draft remote <URL>` でサーバーURLを確認してください", style="dim")
+        elif "401" in err or "Authentication" in err:
+            console.print("❌ 認証に失敗しました", style="red")
+            console.print("   SSH公開鍵が登録されていない可能性があります", style="yellow")
+            console.print("   Web UIの設定画面から登録してください: https://draft-publish.com/settings", style="dim")
+        else:
+            console.print(f"❌ エラー: {err}", style="red")
+        raise SystemExit(1)
