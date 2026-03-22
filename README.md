@@ -5,8 +5,10 @@
 ## インストール（ワンライン）
 
 ```bash
-pip install git+https://github.com/s-saga011/draft-publish.git
+pipx install git+https://github.com/s-saga011/draft-publish.git
 ```
+
+> [pipx](https://pipx.pypa.io/) がない場合: `brew install pipx` (Mac) / `apt install pipx` (Linux) / `pip install pipx` (その他)
 
 ## セットアップ
 
