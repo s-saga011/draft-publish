@@ -414,8 +414,11 @@ def push(
 
 
 @app.command()
-def publish():
-    """現在の記事を公開（draft → published）"""
+def publish(
+    unlisted: bool = typer.Option(False, "--unlisted",
+        help="限定公開（リンクを知っている人のみアクセス可、検索/一覧から除外）"),
+):
+    """現在の記事を公開（draft → published）。--unlisted で限定公開"""
     from rich.console import Console
     console = Console()
     article_dir = find_article_dir()
@@ -432,13 +435,17 @@ def publish():
     base_url = draft_meta.get("server") or get_base_url()
     api_key = ssh_authenticate(base_url)
 
-    res = httpx.patch(f"{base_url}/api/articles/{slug}/status?status=published",
+    target_status = "unlisted" if unlisted else "published"
+    res = httpx.patch(f"{base_url}/api/articles/{slug}/status?status={target_status}",
         headers={"X-Api-Key": api_key}, timeout=10)
 
     if res.status_code == 200:
-        draft_meta["status"] = "published"
+        draft_meta["status"] = target_status
         save_draft_json(article_dir, draft_meta)
-        console.print(f"🚀 {msg('published')}: {base_url}/articles/{slug}", style="bold green")
+        if unlisted:
+            console.print(f"🔗 限定公開: {base_url}/articles/{slug}", style="bold yellow")
+        else:
+            console.print(f"🚀 {msg('published')}: {base_url}/articles/{slug}", style="bold green")
     else:
         console.print(f"❌ {res.text}", style="red")
 
