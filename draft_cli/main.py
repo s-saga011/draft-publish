@@ -344,12 +344,18 @@ def push(
         if not img_path.exists():
             img_path = img_dir / Path(ref).name
         if img_path.exists() and img_path.suffix.lower() in ('.png','.jpg','.jpeg','.gif','.webp','.svg'):
+            ext = img_path.suffix.lower().lstrip('.')
+            mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "svg": "image/svg+xml"}.get(ext, f"image/{ext}")
             with open(img_path, "rb") as f:
                 res = httpx.post(f"{base_url}/api/upload/",
-                    files={"file": (img_path.name, f, f"image/{img_path.suffix.lstrip('.')}")}, timeout=30)
+                    files={"file": (img_path.name, f, mime)},
+                    headers={"X-Api-Key": api_key},
+                    timeout=30)
             if res.status_code == 200:
                 image_url_map[img_path.name] = res.json()["url"]
                 console.print(f"   📤 {img_path.name}", style="dim")
+            else:
+                console.print(f"   ✗ upload failed: {img_path.name} ({res.status_code}: {res.text[:100]})", style="red")
 
     # Parse frontmatter
     post = frontmatter.loads(md_content)
