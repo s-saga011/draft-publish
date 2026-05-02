@@ -381,6 +381,7 @@ def push(
     else:
         a_tags = post.get("tags", [])
     a_cover = (draft_meta and draft_meta.get("cover_image")) or post.get("cover_image", "") or ""
+    a_lang = (draft_meta and draft_meta.get("language")) or post.get("language") or get_lang()
 
     # Rewrite image paths (also resolves cover_image filename to uploaded URL)
     for fn, url in image_url_map.items():
@@ -401,7 +402,7 @@ def push(
         raise typer.Exit(0)
 
     # Push
-    payload = {"title": a_title, "price": a_price, "tags": a_tags, "markdown_content": body, "language": get_lang(), "cover_image": a_cover}
+    payload = {"title": a_title, "price": a_price, "tags": a_tags, "markdown_content": body, "language": a_lang, "cover_image": a_cover}
     headers = {"Content-Type": "application/json", "X-Api-Key": api_key}
 
     if slug:
