@@ -370,11 +370,14 @@ def push(
         a_tags = draft_meta["tags"]
     else:
         a_tags = post.get("tags", [])
+    a_cover = (draft_meta and draft_meta.get("cover_image")) or post.get("cover_image", "") or ""
 
-    # Rewrite image paths
+    # Rewrite image paths (also resolves cover_image filename to uploaded URL)
     for fn, url in image_url_map.items():
         escaped = re.escape(fn)
         body = re.sub(rf'(!\[[^\]]*\])\(([^)]*?{escaped})\)', rf'\1({url})', body)
+        if a_cover and (a_cover == fn or a_cover.endswith('/' + fn)):
+            a_cover = url
 
     slug = draft_meta["slug"] if draft_meta else None
 
@@ -388,7 +391,7 @@ def push(
         raise typer.Exit(0)
 
     # Push
-    payload = {"title": a_title, "price": a_price, "tags": a_tags, "markdown_content": body, "language": get_lang()}
+    payload = {"title": a_title, "price": a_price, "tags": a_tags, "markdown_content": body, "language": get_lang(), "cover_image": a_cover}
     headers = {"Content-Type": "application/json", "X-Api-Key": api_key}
 
     if slug:
