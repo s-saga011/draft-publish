@@ -316,6 +316,16 @@ def push(
                 console.print("❌ .mdが見つかりません", style="red")
                 raise typer.Exit(1)
             path = md_files[0] if len(md_files) == 1 else path
+    elif path.is_file():
+        # When a .md file is specified directly, look for draft.json in the
+        # file's parent (or grandparent) so the existing slug is reused.
+        # Without this, every push of a non-article.md file creates a new
+        # article on the server.
+        parent = path.resolve().parent
+        if (parent / "draft.json").exists():
+            article_dir = parent
+        elif (parent.parent / "draft.json").exists():
+            article_dir = parent.parent
 
     # Load draft metadata
     draft_meta = None
