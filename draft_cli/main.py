@@ -344,7 +344,9 @@ def push(
 
     # Upload images
     import re
-    image_url_map = {}
+    ref_url_map = {}        # original ref string -> uploaded URL
+    upload_cache = {}       # resolved file path -> uploaded URL (dedup)
+    name_url_map = {}       # basename -> URL (for cover_image lookup)
     refs = re.findall(r'!\[[^\]]*\]\(([^)]+)\)', md_content)
     for ref in refs:
         if ref.startswith(('http://', 'https://', '/storage/')):
@@ -353,19 +355,29 @@ def push(
         img_path = img_dir / ref
         if not img_path.exists():
             img_path = img_dir / Path(ref).name
-        if img_path.exists() and img_path.suffix.lower() in ('.png','.jpg','.jpeg','.gif','.webp','.svg'):
-            ext = img_path.suffix.lower().lstrip('.')
-            mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "svg": "image/svg+xml"}.get(ext, f"image/{ext}")
-            with open(img_path, "rb") as f:
-                res = httpx.post(f"{base_url}/api/upload/",
-                    files={"file": (img_path.name, f, mime)},
-                    headers={"X-Api-Key": api_key},
-                    timeout=30)
-            if res.status_code == 200:
-                image_url_map[img_path.name] = res.json()["url"]
-                console.print(f"   📤 {img_path.name}", style="dim")
-            else:
-                console.print(f"   ✗ upload failed: {img_path.name} ({res.status_code}: {res.text[:100]})", style="red")
+        if not (img_path.exists() and img_path.suffix.lower() in ('.png','.jpg','.jpeg','.gif','.webp','.svg')):
+            continue
+
+        cache_key = str(img_path.resolve())
+        if cache_key in upload_cache:
+            ref_url_map[ref] = upload_cache[cache_key]
+            continue
+
+        ext = img_path.suffix.lower().lstrip('.')
+        mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "svg": "image/svg+xml"}.get(ext, f"image/{ext}")
+        with open(img_path, "rb") as f:
+            res = httpx.post(f"{base_url}/api/upload/",
+                files={"file": (img_path.name, f, mime)},
+                headers={"X-Api-Key": api_key},
+                timeout=30)
+        if res.status_code == 200:
+            url = res.json()["url"]
+            upload_cache[cache_key] = url
+            ref_url_map[ref] = url
+            name_url_map[img_path.name] = url
+            console.print(f"   📤 {img_path.name}", style="dim")
+        else:
+            console.print(f"   ✗ upload failed: {img_path.name} ({res.status_code}: {res.text[:100]})", style="red")
 
     # Parse frontmatter
     post = frontmatter.loads(md_content)
@@ -383,12 +395,18 @@ def push(
     a_cover = (draft_meta and draft_meta.get("cover_image")) or post.get("cover_image", "") or ""
     a_lang = (draft_meta and draft_meta.get("language")) or post.get("language") or get_lang()
 
-    # Rewrite image paths (also resolves cover_image filename to uploaded URL)
-    for fn, url in image_url_map.items():
-        escaped = re.escape(fn)
-        body = re.sub(rf'(!\[[^\]]*\])\(([^)]*?{escaped})\)', rf'\1({url})', body)
-        if a_cover and (a_cover == fn or a_cover.endswith('/' + fn)):
-            a_cover = url
+    # Rewrite image paths (exact ref match to avoid basename collisions like
+    # us_05_cobb.jpg matching inside flux2_klein_us_05_cobb.jpg)
+    for ref, url in ref_url_map.items():
+        escaped = re.escape(ref)
+        body = re.sub(rf'(!\[[^\]]*\])\({escaped}\)', rf'\1({url})', body)
+
+    # Resolve cover_image (still by basename, since cover is a single file ref)
+    if a_cover:
+        for fn, url in name_url_map.items():
+            if a_cover == fn or a_cover.endswith('/' + fn):
+                a_cover = url
+                break
 
     slug = draft_meta["slug"] if draft_meta else None
 
@@ -396,7 +414,7 @@ def push(
     console.print()
     status_label = msg("update_label") if slug else msg("new_label")
     console.print(f"[bold]{a_title}[/bold]")
-    console.print(f"{'¥'+str(a_price) if a_price > 0 else '無料'}  {len(body)}文字  {len(image_url_map)}画像  [{status_label}]")
+    console.print(f"{'¥'+str(a_price) if a_price > 0 else '無料'}  {len(body)}文字  {len(upload_cache)}画像  [{status_label}]")
 
     if not typer.confirm(msg("push_confirm"), default=True):
         raise typer.Exit(0)
