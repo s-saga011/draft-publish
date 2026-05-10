@@ -385,19 +385,34 @@ def push(
         mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
                     ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
         mime = mime_map.get(img_path.suffix.lower(), "application/octet-stream")
-        with open(img_path, "rb") as f:
-            res = httpx.post(f"{base_url}/api/upload/",
-                files={"file": (img_path.name, f, mime)},
-                headers={"X-Api-Key": api_key},
-                timeout=30)
-        if res.status_code == 200:
+
+        # Server limits /api/upload/ to 300/min/IP. Image-heavy articles
+        # (e.g. 216-image food-comparison) hit it on bulk push. Wait out 429s
+        # using the Retry-After header instead of dropping the upload.
+        import time
+        res = None
+        for attempt in range(4):
+            with open(img_path, "rb") as f:
+                res = httpx.post(f"{base_url}/api/upload/",
+                    files={"file": (img_path.name, f, mime)},
+                    headers={"X-Api-Key": api_key},
+                    timeout=30)
+            if res.status_code != 429:
+                break
+            wait_s = int(res.headers.get("retry-after", 60)) + 1
+            console.print(f"   ⏳ rate limit, sleeping {wait_s}s before retry ({attempt+1}/4)...", style="yellow")
+            time.sleep(wait_s)
+
+        if res is not None and res.status_code == 200:
             url = res.json()["url"]
             upload_cache[cache_key] = url
             ref_url_map[ref] = url
             name_url_map[img_path.name] = url
             console.print(f"   📤 {img_path.name}", style="dim")
         else:
-            console.print(f"   ✗ upload failed: {img_path.name} ({res.status_code}: {res.text[:100]})", style="red")
+            code = res.status_code if res is not None else "no-response"
+            text = (res.text[:100] if res is not None else "")
+            console.print(f"   ✗ upload failed: {img_path.name} ({code}: {text})", style="red")
 
     # Parse frontmatter
     post = frontmatter.loads(md_content)
