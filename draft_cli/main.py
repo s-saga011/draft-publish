@@ -269,8 +269,15 @@ def push(
     price: Optional[int] = typer.Option(None, "-p", "--price"),
     title: Optional[str] = typer.Option(None, "-t", "--title"),
     tags: Optional[str] = typer.Option(None, "--tags"),
+    unlisted: bool = typer.Option(False, "--unlisted", help="新規記事を unlisted (URL を知ってる人のみ) で作成"),
+    draft_status: bool = typer.Option(False, "--draft", "-d", help="新規記事を draft (非公開) として保存"),
 ):
     """記事をpush（SSH鍵で自動認証）"""
+    if unlisted and draft_status:
+        from rich.console import Console
+        Console().print("❌ --unlisted と --draft は同時に指定できません", style="red")
+        raise typer.Exit(1)
+
     import frontmatter
     from rich.console import Console
     from rich.panel import Panel
@@ -347,7 +354,19 @@ def push(
     ref_url_map = {}        # original ref string -> uploaded URL
     upload_cache = {}       # resolved file path -> uploaded URL (dedup)
     name_url_map = {}       # basename -> URL (for cover_image lookup)
-    refs = re.findall(r'!\[[^\]]*\]\(([^)]+)\)', md_content)
+
+    # Collect every `](path)` target whose path looks like an image file.
+    # Covers both image references (![alt](path)) and link wrappers
+    # ([text](path) / [![thumb](inner)](outer)). Without this, the outer
+    # link target in nested forms is left as a relative path that 404s.
+    _IMG_EXT_RE = re.compile(r'\.(png|jpg|jpeg|gif|webp|svg)$', re.IGNORECASE)
+    refs = []
+    for m in re.finditer(r'\]\(([^)]+)\)', md_content):
+        candidate = m.group(1)
+        if _IMG_EXT_RE.search(candidate):
+            refs.append(candidate)
+    refs = list(dict.fromkeys(refs))  # preserve order, dedupe
+
     for ref in refs:
         if ref.startswith(('http://', 'https://', '/storage/')):
             continue
@@ -363,8 +382,9 @@ def push(
             ref_url_map[ref] = upload_cache[cache_key]
             continue
 
-        ext = img_path.suffix.lower().lstrip('.')
-        mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "svg": "image/svg+xml"}.get(ext, f"image/{ext}")
+        mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                    ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
+        mime = mime_map.get(img_path.suffix.lower(), "application/octet-stream")
         with open(img_path, "rb") as f:
             res = httpx.post(f"{base_url}/api/upload/",
                 files={"file": (img_path.name, f, mime)},
@@ -395,11 +415,13 @@ def push(
     a_cover = (draft_meta and draft_meta.get("cover_image")) or post.get("cover_image", "") or ""
     a_lang = (draft_meta and draft_meta.get("language")) or post.get("language") or get_lang()
 
-    # Rewrite image paths (exact ref match to avoid basename collisions like
-    # us_05_cobb.jpg matching inside flux2_klein_us_05_cobb.jpg)
+    # Rewrite paths (exact ref match to avoid basename collisions like
+    # us_05_cobb.jpg matching inside flux2_klein_us_05_cobb.jpg). Anchoring
+    # on `](ref)` instead of `![alt](ref)` covers both image references and
+    # link wrappers like [![thumb](inner)](outer).
     for ref, url in ref_url_map.items():
         escaped = re.escape(ref)
-        body = re.sub(rf'(!\[[^\]]*\])\({escaped}\)', rf'\1({url})', body)
+        body = re.sub(rf'\]\({escaped}\)', f']({url})', body)
 
     # Resolve cover_image (still by basename, since cover is a single file ref)
     if a_cover:
@@ -421,6 +443,10 @@ def push(
 
     # Push
     payload = {"title": a_title, "price": a_price, "tags": a_tags, "markdown_content": body, "language": a_lang, "cover_image": a_cover}
+    # New-article initial visibility: --unlisted / --draft / (default published)
+    initial_status = "unlisted" if unlisted else "draft" if draft_status else None
+    if initial_status:
+        payload["initial_status"] = initial_status
     headers = {"Content-Type": "application/json", "X-Api-Key": api_key}
 
     if slug:
@@ -429,7 +455,7 @@ def push(
         if check.status_code == 200:
             res = httpx.put(f"{base_url}/api/articles/{slug}", headers=headers, json=payload, timeout=30)
         else:
-            payload["status"] = draft_meta.get("status", "draft")
+            payload["initial_status"] = initial_status or draft_meta.get("status", "draft")
             res = httpx.post(f"{base_url}/api/articles/", headers=headers, json=payload, timeout=30)
     else:
         res = httpx.post(f"{base_url}/api/articles/", headers=headers, json=payload, timeout=30)
