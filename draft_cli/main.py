@@ -4,6 +4,7 @@ import httpx
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -79,14 +80,27 @@ def msg(key):
     return CLI_MESSAGES.get(lang, CLI_MESSAGES["ja"]).get(key, CLI_MESSAGES["ja"].get(key, key))
 
 
+def _atomic_write_text(path: Path, text: str):
+    """UTF-8 atomic write: temp file in the same dir, then os.replace().
+
+    Plain write_text() has two Windows problems: the default encoding is
+    cp932 (UnicodeEncodeError on e.g. em-dash titles), and a crash mid-write
+    leaves a truncated 0-byte file behind — a broken draft.json then kills
+    every later `draft status`. os.replace() is atomic on POSIX and Windows.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def get_config():
     if CONFIG_PATH.exists():
-        return json.loads(CONFIG_PATH.read_text())
+        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     return {}
 
 def save_config(config: dict):
     CONFIG_PATH.parent.mkdir(exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(config, indent=2))
+    _atomic_write_text(CONFIG_PATH, json.dumps(config, indent=2))
 
 def get_base_url():
     config = get_config()
@@ -154,10 +168,10 @@ def find_article_dir():
 
 
 def load_draft_json(article_dir: Path) -> dict:
-    return json.loads((article_dir / "draft.json").read_text())
+    return json.loads((article_dir / "draft.json").read_text(encoding="utf-8"))
 
 def save_draft_json(article_dir: Path, data: dict):
-    (article_dir / "draft.json").write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    _atomic_write_text(article_dir / "draft.json", json.dumps(data, indent=2, ensure_ascii=False))
 
 
 # ===== Commands =====
@@ -550,7 +564,13 @@ def status():
         if not d.is_dir(): continue
         dj = d / "draft.json"
         if not dj.exists(): continue
-        meta = json.loads(dj.read_text())
+        try:
+            meta = json.loads(dj.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # 過去バージョンの非アトミック書き込みが残した 0 バイト/破損
+            # draft.json で status 全体が死なないようスキップして知らせる
+            table.add_row(d.name, "⚠️ draft.json が壊れています (削除推奨)", "-", "-")
+            continue
         status_icon = "🟢" if meta.get("status") == "published" else "🟡"
         price = f"¥{meta['price']}" if meta.get('price', 0) > 0 else "無料"
         table.add_row(d.name, meta.get("title", ""), f"{status_icon} {meta.get('status','draft')}", price)
